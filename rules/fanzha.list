@@ -1,7 +1,7 @@
 #屏蔽系统内置反诈应用
 #oppo/一加/真我
 PROCESS-NAME,com.oplus.appdetail
-PROCESS-NAME,com.coloros.PROCESS-NAME,phonemanager
+PROCESS-NAME,com.coloros.phonemanager
 PROCESS-NAME,com.android.packageinstaller
 PROCESS-NAME,com.oplus.safecenter
 PROCESS-NAME,com.coloros.securityguard
