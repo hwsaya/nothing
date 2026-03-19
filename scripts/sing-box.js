@@ -1,27 +1,89 @@
-//只是在xream佬的脚本里加了协议匹配功能
-//https://github.com/hwsaya/nothing/raw/refs/heads/main/scripts/sing-box.js#type=组合订阅&name=填写你的组合订阅名称&outbound=🕳ℹ️Auto🕳ℹ️hk🏷ℹ️港|hk|hongkong|kong kong|🇭🇰🕳ℹ️tw🏷ℹ️台 |tw|taiwan|🇹🇼🕳ℹ️jp🏷ℹ️日本 |jp|japan|🇯🇵🕳ℹ️kr🏷ℹ️韩国 |kr|south korea|🇰🇷🕳ℹ️sg🏷ℹ️^(?!.*(?:us)).*(新 |sg|singapore|🇸🇬)🕳ℹ️us🏷ℹ️美 |us|unitedstates|united states|🇺🇸🕳ℹ️vless🏷🔧vless🕳ℹ️hysteria2🏷🔧hysteria2
-// 示例说明
-// 读取 名称为 "机场" 的 组合订阅 中的节点(单订阅不需要设置 type 参数)
-// 把 所有节点插入匹配 /all|all-auto/i 的 outbound 中(跟在 🕳 后面, ℹ️ 表示忽略大小写, 不筛选节点不需要给 🏷 )
-// 把匹配 /港|hk|hongkong|kong kong|🇭🇰/i  (跟在 🏷 后面, ℹ️ 表示忽略大小写) 的节点插入匹配 /hk|hk-auto/i 的 outbound 中
-// ...
-// 可选参数: includeUnsupportedProxy 包含官方/商店版不支持的协议 SSR. 用法: `&includeUnsupportedProxy=true`
+// ============================================================
+// ✏️ 在这里编辑参数 — 本地使用时直接改；远程拉取时由 URL 参数覆盖
+// ============================================================
 
-// 支持传入订阅 URL. 参数为 url. 记得 url 需要 encodeURIComponent.
-// 例如: http://a.com?token=123 应使用 url=http%3A%2F%2Fa.com%3Ftoken%3D123
+const DEFAULTS = {
+  // 订阅类型: '组合' 或 'subscription'（单订阅）
+  type: '组合',
 
-// 新增功能: 支持按协议类型筛选节点
-// 使用 🔧 符号表示协议筛选, 例如: 🕳ℹ️vless-nodes🔧vless 表示只匹配 vless 协议的节点
-// 支持的协议: vless, hysteria2, shadowsocks, vmess, trojan, hysteria, tuic, ssh, wireguard
+  // Sub Store 中配置的订阅名称
+  name: 'All',
 
-// ⚠️ 如果 outbounds 为空, 自动创建 COMPATIBLE(direct) 并插入 防止报错
+  // 是否包含 SSR 等不受官方支持的协议
+  includeUnsupportedProxy: false,
+
+  // 直接从 URL 读取订阅（可选）
+  url: '',
+
+  // ── outbound 规则 ──────────────────────────────────────────
+  // tags      : sing-box 配置中的 outbound tag（支持正则）
+  // include   : 节点名称匹配关键词（支持正则，留空 = 全部节点）
+  // protocol  : 按协议筛选（可选：vless / hysteria2 / trojan 等）
+  // ignoreCase: 忽略大小写，默认 true
+  // ──────────────────────────────────────────────────────────
+  outboundRules: [
+    {
+      tags: 'Auto',
+    },
+    {
+      tags: 'HK',
+      include: '港|hk|hongkong|kong kong|🇭🇰',
+    },
+    {
+      tags: 'TW',
+      include: '台|tw|taiwan|🇹🇼',
+    },
+    {
+      tags: 'JP',
+      include: '日本|jp|japan|🇯🇵',
+    },
+    {
+      tags: 'KR',
+      include: '韩国|kr|south korea|🇰🇷',
+    },
+    {
+      tags: 'SG',
+      include: '^(?!.*(?:us)).*(新|sg|singapore|🇸🇬)',
+    },
+    {
+      tags: 'US',
+      include: '美|us|unitedstates|united states|🇺🇸',
+    },
+    {
+      tags: '广东',
+      include: '广州',
+    },
+    {
+      tags: 'vless',
+      protocol: 'vless',
+    },
+    {
+      tags: 'hysteria2',
+      protocol: 'hysteria2',
+    },
+  ],
+}
+
+// ============================================================
+// ⚠️ 以下为脚本正文，一般无需修改
+// ============================================================
+
 log(`🚀 开始`)
 
-let { type, name, outbound, includeUnsupportedProxy, url } = $arguments
+const args = (typeof $arguments !== 'undefined' && $arguments && Object.keys($arguments).length)
+  ? $arguments : {}
 
-log(`传入参数 type: ${type}, name: ${name}, outbound: ${outbound}`)
+let type                    = args.type                    ?? DEFAULTS.type
+let name                    = args.name                    ?? DEFAULTS.name
+let includeUnsupportedProxy = args.includeUnsupportedProxy ?? DEFAULTS.includeUnsupportedProxy
+let url                     = args.url                     ?? DEFAULTS.url
+let outbound                = args.outbound                ?? buildOutboundString(DEFAULTS.outboundRules)
+
+log(`传入参数 type: ${type}, name: ${name}`)
+log(`生成的 outbound 字符串: ${outbound}`)
 
 type = /^1$|col|组合/i.test(type) ? 'collection' : 'subscription'
+log(`订阅类型解析结果: ${type}`)
 
 const parser = ProxyUtils.JSON5 || JSON
 log(`① 使用 ${ProxyUtils.JSON5 ? 'JSON5' : 'JSON'} 解析配置文件`)
@@ -32,37 +94,40 @@ try {
   log(`${e.message ?? e}`)
   throw new Error(`配置文件不是合法的 ${ProxyUtils.JSON5 ? 'JSON5' : 'JSON'} 格式`)
 }
-log(`② 获取订阅`)
+log(`配置文件解析成功，outbounds 数量: ${config.outbounds?.length ?? 0}`)
+log(`配置文件中的 outbound tags: ${config.outbounds?.map(o => o.tag).join(', ')}`)
 
+log(`② 获取订阅`)
 let proxies
-if (url) {
-  log(`直接从 URL ${url} 读取订阅`)
-  proxies = await produceArtifact({
-    name,
-    type,
-    platform: 'sing-box',
-    produceType: 'internal',
-    produceOpts: {
-      'include-unsupported-proxy': includeUnsupportedProxy,
-    },
-    subscription: {
-      name,
-      url,
-      source: 'remote',
-    },
-  })
-} else {
-  log(`将读取名称为 ${name} 的 ${type === 'collection' ? '组合' : ''}订阅`)
-  proxies = await produceArtifact({
-    name,
-    type,
-    platform: 'sing-box',
-    produceType: 'internal',
-    produceOpts: {
-      'include-unsupported-proxy': includeUnsupportedProxy,
-    },
-  })
+try {
+  if (url) {
+    log(`直接从 URL ${url} 读取订阅`)
+    proxies = await produceArtifact({
+      name, type,
+      platform: 'sing-box',
+      produceType: 'internal',
+      produceOpts: { 'include-unsupported-proxy': includeUnsupportedProxy },
+      subscription: { name, url, source: 'remote' },
+    })
+  } else {
+    log(`将读取名称为 "${name}" 的 ${type === 'collection' ? '组合' : '单'}订阅`)
+    proxies = await produceArtifact({
+      name, type,
+      platform: 'sing-box',
+      produceType: 'internal',
+      produceOpts: { 'include-unsupported-proxy': includeUnsupportedProxy },
+    })
+  }
+} catch (e) {
+  throw new Error(`获取订阅失败: ${e.message ?? e}，请检查订阅名称 "${name}" 是否正确`)
 }
+
+if (!proxies || proxies.length === 0) {
+  throw new Error(`订阅 "${name}" 未返回任何节点，请检查：① 订阅名称是否与 Sub Store 中一致 ② 订阅类型 type 是否正确（组合/subscription）③ 订阅是否有效`)
+}
+
+log(`获取到 ${proxies.length} 个节点`)
+log(`前5个节点: ${proxies.slice(0, 5).map(p => `${p.tag}(${p.type})`).join(', ')}`)
 
 log(`③ outbound 规则解析`)
 const outbounds = outbound
@@ -72,8 +137,7 @@ const outbounds = outbound
     let [outboundPattern, rest = ''] = i.split('🏷')
     let tagPattern = '.*'
     let protocolPattern = null
-    
-    // 检查是否有协议筛选
+
     if (rest.includes('🔧')) {
       const parts = rest.split('🔧')
       tagPattern = parts[0] || '.*'
@@ -81,16 +145,16 @@ const outbounds = outbound
     } else {
       tagPattern = rest || '.*'
     }
-    
+
     const tagRegex = createTagRegExp(tagPattern)
     const protocolRegex = protocolPattern ? createProtocolRegExp(protocolPattern) : null
-    
+
     if (protocolRegex) {
-      log(`匹配 🏷 ${tagRegex} 且 🔧 协议 ${protocolRegex} 的节点将插入匹配 🕳 ${createOutboundRegExp(outboundPattern)} 的 outbound 中`)
+      log(`规则: outbound匹配 ${createOutboundRegExp(outboundPattern)} | 节点匹配 ${tagRegex} | 协议 ${protocolRegex}`)
     } else {
-      log(`匹配 🏷 ${tagRegex} 的节点将插入匹配 🕳 ${createOutboundRegExp(outboundPattern)} 的 outbound 中`)
+      log(`规则: outbound匹配 ${createOutboundRegExp(outboundPattern)} | 节点匹配 ${tagRegex}`)
     }
-    
+
     return [outboundPattern, tagRegex, protocolRegex]
   })
 
@@ -99,37 +163,30 @@ config.outbounds.map(outbound => {
   outbounds.map(([outboundPattern, tagRegex, protocolRegex]) => {
     const outboundRegex = createOutboundRegExp(outboundPattern)
     if (outboundRegex.test(outbound.tag)) {
-      if (!Array.isArray(outbound.outbounds)) {
-        outbound.outbounds = []
-      }
+      if (!Array.isArray(outbound.outbounds)) outbound.outbounds = []
       const tags = getTags(proxies, tagRegex, protocolRegex)
-      const protocolInfo = protocolRegex ? ` 🔧 协议匹配 ${protocolRegex}` : ''
-      log(`🕳 ${outbound.tag} 匹配 ${outboundRegex}, 插入 ${tags.length} 个 🏷 匹配 ${tagRegex}${protocolInfo} 的节点`)
+      const protocolInfo = protocolRegex ? ` 协议:${protocolRegex}` : ''
+      log(`✅ "${outbound.tag}" 匹配规则 ${outboundRegex}，插入 ${tags.length} 个节点 (筛选:${tagRegex}${protocolInfo})`)
       outbound.outbounds.push(...tags)
     }
   })
 })
 
-const compatible_outbound = {
-  tag: 'COMPATIBLE',
-  type: 'direct',
-}
-
+const compatible_outbound = { tag: 'COMPATIBLE', type: 'direct' }
 let compatible
+
 log(`⑤ 空 outbounds 检查`)
 config.outbounds.map(outbound => {
   outbounds.map(([outboundPattern, tagRegex, protocolRegex]) => {
     const outboundRegex = createOutboundRegExp(outboundPattern)
     if (outboundRegex.test(outbound.tag)) {
-      if (!Array.isArray(outbound.outbounds)) {
-        outbound.outbounds = []
-      }
+      if (!Array.isArray(outbound.outbounds)) outbound.outbounds = []
       if (outbound.outbounds.length === 0) {
         if (!compatible) {
           config.outbounds.push(compatible_outbound)
           compatible = true
         }
-        log(`🕳 ${outbound.tag} 的 outbounds 为空, 自动插入 COMPATIBLE(direct)`)
+        log(`⚠️ "${outbound.tag}" 的 outbounds 为空，自动插入 COMPATIBLE(direct)`)
         outbound.outbounds.push(compatible_outbound.tag)
       }
     }
@@ -137,27 +194,31 @@ config.outbounds.map(outbound => {
 })
 
 config.outbounds.push(...proxies)
-
 $content = JSON.stringify(config, null, 2)
+
+// ---- 工具函数 ----
+
+function buildOutboundString(rules) {
+  return rules.map(r => {
+    const ic = r.ignoreCase === false ? '' : 'ℹ️'
+    const outPart = `${ic}${r.tags}`
+
+    if (!r.include && !r.protocol) return outPart
+    if (r.protocol && !r.include)  return `${outPart}🏷🔧${r.protocol}`
+    if (r.protocol && r.include)   return `${outPart}🏷${ic}${r.include}🔧${r.protocol}`
+    return `${outPart}🏷${ic}${r.include}`
+  }).join('🕳')
+}
 
 function getTags(proxies, tagRegex, protocolRegex) {
   let filtered = proxies
-  
-  // 先按 tag 筛选
-  if (tagRegex) {
-    filtered = filtered.filter(p => tagRegex.test(p.tag))
-  }
-  
-  // 再按协议筛选
-  if (protocolRegex) {
-    filtered = filtered.filter(p => p.type && protocolRegex.test(p.type))
-  }
-  
+  if (tagRegex)      filtered = filtered.filter(p => tagRegex.test(p.tag))
+  if (protocolRegex) filtered = filtered.filter(p => p.type && protocolRegex.test(p.type))
   return filtered.map(p => p.tag)
 }
 
 function log(v) {
-  console.log(`[📦 sing-box 模板脚本] ${v}`)
+  console.log(`[📦 sing-box] ${v}`)
 }
 
 function createTagRegExp(tagPattern) {
@@ -173,3 +234,4 @@ function createProtocolRegExp(protocolPattern) {
 }
 
 log(`🔚 结束`)
+ 
